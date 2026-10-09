@@ -40,6 +40,11 @@ Every change can be reversed with **Undo**.
 - Late players take a loss for each round they missed.
 - Top cut seeds the best non-dropped players; seeds 1 and 2 can only meet in the final.
 
+## Project documents
+
+- [Discovery plan](docs/discovery/README.md): research questions, stakeholders,
+  interview guides, survey and event observation sheet
+
 ## For developers
 
 - `lorcana/rules.py` holds all tournament logic, with no web or storage code.

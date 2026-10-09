@@ -3,6 +3,9 @@ data/
 *.db
 *.sqlite
 
+# Raw research notes identify real people; only anonymized findings are published.
+docs/discovery/raw/
+
 # Python
 __pycache__/
 *.pyc
