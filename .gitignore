@@ -1,0 +1,15 @@
+# Saved tournaments contain real player names; never publish them.
+data/
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Mac and editors
+.DS_Store
+.vscode/
+.idea/
+*.tmp

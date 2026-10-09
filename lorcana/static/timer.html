@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Round Timer</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="timer-page">
+  <div class="tp-title" id="tp-title"></div>
+  <div class="tp-round" id="tp-round"></div>
+  <div class="tp-clock" id="tp-clock">--:--</div>
+  <div class="tp-controls" id="tp-controls">
+    <button id="tp-toggle" data-op="start">Start</button>
+    <button data-op="add" data-seconds="-60">−1 min</button>
+    <button data-op="add" data-seconds="60">+1 min</button>
+    <button data-op="reset">Reset</button>
+    <button data-op="fullscreen">Full screen</button>
+    <span class="tp-hint">Space: start/pause · ↑ ↓: ±1 min · F: full screen</span>
+  </div>
+  <script src="/static/common.js"></script>
+  <script src="/static/timer.js"></script>
+</body>
+</html>
