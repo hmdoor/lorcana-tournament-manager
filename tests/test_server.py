@@ -1,9 +1,11 @@
 import json
 import random
+import sqlite3
 import tempfile
 import threading
 import unittest
 import urllib.error
+from contextlib import closing
 import urllib.request
 from pathlib import Path
 
@@ -104,11 +106,37 @@ class ServerTests(unittest.TestCase):
         v = self.act(tid, "update_settings", round_minutes=45)
         self.assertEqual(v["timer"]["remaining"], 2700)
 
-    def test_delete_moves_file_aside(self):
+    def test_delete_keeps_data_in_database(self):
         tid = self.call("POST", "/api/tournaments", {"name": "Test"}, expect=201)["id"]
         self.call("DELETE", f"/api/tournaments/{tid}")
-        self.assertTrue((Path(self.tmp.name) / "deleted" / f"{tid}.json").exists())
         self.call("GET", f"/api/tournaments/{tid}", expect=404)
+        self.assertEqual(self.call("GET", "/api/tournaments"), [])
+        with closing(sqlite3.connect(Path(self.tmp.name) / "lorcana.db")) as db:
+            (deleted_at,) = db.execute("SELECT deleted_at FROM events WHERE event_id = ?", (tid,)).fetchone()
+        self.assertIsNotNone(deleted_at)
+
+    def test_store_date_and_inks(self):
+        v = self.call("POST", "/api/tournaments", {"name": "T", "store": "Dragon's Den", "event_date": "2026-11-02"}, expect=201)
+        self.assertEqual((v["tournament"]["store"], v["tournament"]["event_date"]), ("Dragon's Den", "2026-11-02"))
+        v = self.act(v["id"], "add_player", name="Ariel")
+        pid = v["tournament"]["players"][0]["id"]
+        v = self.act(v["id"], "set_player_inks", player_id=pid, inks=["Steel", "Amber"])
+        self.assertEqual(v["tournament"]["players"][0]["inks"], ["Amber", "Steel"])
+        err = self.act(v["id"], "set_player_inks", expect=400, player_id=pid, inks=["Purple"])
+        self.assertIn("not a Lorcana ink", err["error"])
+        self.assertEqual(v["inks"], ["Amber", "Amethyst", "Emerald", "Ruby", "Sapphire", "Steel"])
+
+    def test_old_json_files_are_imported(self):
+        # Simulate a tournament saved by the earlier JSON-file version.
+        legacy = {"id": "abc123", "tournament": {"name": "Old Event", "settings": {"round_minutes": 50,
+                  "swiss_rounds": None, "top_cut_size": 0}, "players": [], "rounds": [], "top_cut": None},
+                  "timer": {"running": False, "ends_at": None, "remaining": 3000}, "history": []}
+        (Path(self.tmp.name) / "abc123.json").write_text(json.dumps(legacy))
+        other = make_server(Path(self.tmp.name), port=8800)
+        other.server_close()
+        names = [t["name"] for t in self.call("GET", "/api/tournaments")]
+        self.assertIn("Old Event", names)
+        self.assertTrue((Path(self.tmp.name) / "migrated-json" / "abc123.json").exists())
 
 
 if __name__ == "__main__":

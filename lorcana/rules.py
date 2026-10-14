@@ -20,8 +20,11 @@ import math
 import random
 import uuid
 from dataclasses import asdict, dataclass, field
+from datetime import date, datetime, timezone
 from typing import Literal
 
+INKS = ("Amber", "Amethyst", "Emerald", "Ruby", "Sapphire", "Steel")
+MAX_INKS = 2
 POINTS_WIN = 3
 POINTS_DRAW = 1
 POINTS_LOSS = 0
@@ -57,6 +60,7 @@ class Match:
     p1: str
     p2: str | None  # None means p1 has a bye
     result: Result | None = None
+    reported_at: str | None = None  # UTC ISO 8601 time the result was last entered
 
     @property
     def is_bye(self) -> bool:
@@ -68,6 +72,7 @@ class Round:
     number: int
     stage: Stage
     matches: list[Match]
+    paired_at: str | None = None  # UTC ISO 8601 time the round was paired
 
 
 @dataclass
@@ -77,6 +82,7 @@ class Player:
     dropped: bool = False
     dropped_after_round: int | None = None
     joined_round: int = 1  # rounds before this count as match losses
+    inks: list[str] = field(default_factory=list)  # deck inks, 0–2 of INKS
 
 
 @dataclass
@@ -95,6 +101,8 @@ class TopCut:
 @dataclass
 class Tournament:
     name: str = "Lorcana Tournament"
+    store: str = ""
+    event_date: str = field(default_factory=lambda: date.today().isoformat())  # YYYY-MM-DD
     settings: Settings = field(default_factory=Settings)
     players: list[Player] = field(default_factory=list)
     rounds: list[Round] = field(default_factory=list)
@@ -105,8 +113,11 @@ class Tournament:
 
     @classmethod
     def from_dict(cls, data: dict) -> Tournament:
+        # .get() keeps files saved before store/date/inks/timestamps existed loadable.
         return cls(
             name=data["name"],
+            store=data.get("store", ""),
+            event_date=data.get("event_date") or date.today().isoformat(),
             settings=Settings(**data["settings"]),
             players=[Player(**p) for p in data["players"]],
             rounds=[
@@ -117,6 +128,7 @@ class Tournament:
                         Match(**{**m, "result": Result(**m["result"]) if m["result"] else None})
                         for m in r["matches"]
                     ],
+                    paired_at=r.get("paired_at"),
                 )
                 for r in data["rounds"]
             ],
@@ -164,6 +176,8 @@ def update_settings(
     t: Tournament,
     *,
     name=_UNSET,
+    store=_UNSET,
+    event_date=_UNSET,
     round_minutes=_UNSET,
     swiss_rounds=_UNSET,
     top_cut_size=_UNSET,
@@ -175,6 +189,15 @@ def update_settings(
     new = copy.deepcopy(t)
     if name is not _UNSET:
         new.name = _clean_name(name, "Tournament name")
+    if store is not _UNSET:
+        if not isinstance(store, str):
+            raise TournamentError("Store name must be text.")
+        new.store = " ".join(store.split())
+    if event_date is not _UNSET:
+        try:
+            new.event_date = date.fromisoformat(event_date).isoformat()
+        except (TypeError, ValueError):
+            raise TournamentError("Event date must be a date like 2026-10-14.") from None
     if round_minutes is not _UNSET:
         if not _is_int(round_minutes) or not 1 <= round_minutes <= 240:
             raise TournamentError("Round length must be between 1 and 240 minutes.")
@@ -248,6 +271,25 @@ def drop_player(t: Tournament, player_id: str) -> Tournament:
     return new
 
 
+def set_player_inks(t: Tournament, player_id: str, inks: list[str]) -> Tournament:
+    """Records a player's deck inks: up to 2 different inks, or none if they'd rather not say."""
+    if not isinstance(inks, list) or not all(isinstance(i, str) for i in inks):
+        raise TournamentError("Inks must be a list of ink names.")
+    by_name = {ink.casefold(): ink for ink in INKS}
+    chosen = []
+    for ink in inks:
+        if ink.casefold() not in by_name:
+            raise TournamentError(f'"{ink}" is not a Lorcana ink. Choose from {", ".join(INKS)}.')
+        chosen.append(by_name[ink.casefold()])
+    if len(chosen) > MAX_INKS:
+        raise TournamentError("A deck can have at most 2 inks.")
+    if len(set(chosen)) != len(chosen):
+        raise TournamentError("Choose two different inks.")
+    new = copy.deepcopy(t)
+    _find_player(new, player_id).inks = sorted(chosen, key=INKS.index)
+    return new
+
+
 def reinstate_player(t: Tournament, player_id: str) -> Tournament:
     """Undoes a drop (e.g. dropped by mistake)."""
     new = copy.deepcopy(t)
@@ -294,7 +336,9 @@ def match_winner(match: Match) -> str | None:
     return match.p1 if outcome == "p1" else match.p2 if outcome == "p2" else None
 
 
-def report_result(t: Tournament, match_id: str, p1_wins: int, p2_wins: int, draws: int = 0) -> Tournament:
+def report_result(
+    t: Tournament, match_id: str, p1_wins: int, p2_wins: int, draws: int = 0, now: str | None = None
+) -> Tournament:
     """Records a result.
 
     Results in the current round can always be changed. Earlier Swiss results can be
@@ -310,6 +354,7 @@ def report_result(t: Tournament, match_id: str, p1_wins: int, p2_wins: int, draw
     if error:
         raise TournamentError(error)
     match.result = Result(p1_wins, p2_wins, draws)
+    match.reported_at = _timestamp(now)
     return new
 
 
@@ -320,6 +365,7 @@ def clear_result(t: Tournament, match_id: str) -> Tournament:
         raise TournamentError("Byes cannot be cleared.")
     _assert_editable(new, rnd)
     match.result = None
+    match.reported_at = None
     return new
 
 
@@ -407,7 +453,7 @@ def _average(values: list[float]) -> float:
 # ---------------------------------------------------------------------------
 
 
-def pair_next_swiss_round(t: Tournament, rng: random.Random | None = None) -> Tournament:
+def pair_next_swiss_round(t: Tournament, rng: random.Random | None = None, now: str | None = None) -> Tournament:
     """Pairs the next Swiss round.
 
     Players are paired within their match-point group (random order inside the
@@ -461,11 +507,14 @@ def pair_next_swiss_round(t: Tournament, rng: random.Random | None = None) -> To
         Match(id=f"r{number}-t{i}", table=i, p1=p1, p2=p2)
         for i, (p1, p2) in enumerate(pairs, start=1)
     ]
+    stamp = _timestamp(now)
     if bye_player is not None:
-        matches.append(Match(id=f"r{number}-bye", table=None, p1=bye_player, p2=None, result=Result(2, 0, 0)))
+        matches.append(
+            Match(id=f"r{number}-bye", table=None, p1=bye_player, p2=None, result=Result(2, 0, 0), reported_at=stamp)
+        )
 
     new = copy.deepcopy(t)
-    new.rounds.append(Round(number=number, stage="swiss", matches=matches))
+    new.rounds.append(Round(number=number, stage="swiss", matches=matches, paired_at=stamp))
     return new
 
 
@@ -512,7 +561,7 @@ def bracket_seed_order(size: int) -> list[int]:
     return order
 
 
-def start_top_cut(t: Tournament, size: int | None = None) -> Tournament:
+def start_top_cut(t: Tournament, size: int | None = None, now: str | None = None) -> Tournament:
     """Seeds the top `size` non-dropped players from the final Swiss standings."""
     size = t.settings.top_cut_size if size is None else size
     if size < 2 or size & (size - 1):
@@ -538,11 +587,11 @@ def start_top_cut(t: Tournament, size: int | None = None) -> Tournament:
 
     new = copy.deepcopy(t)
     new.top_cut = TopCut(size=size, seeds=seeds)
-    new.rounds.append(Round(number=number, stage="topcut", matches=matches))
+    new.rounds.append(Round(number=number, stage="topcut", matches=matches, paired_at=_timestamp(now)))
     return new
 
 
-def advance_top_cut(t: Tournament) -> Tournament:
+def advance_top_cut(t: Tournament, now: str | None = None) -> Tournament:
     """Pairs the winners of the current top cut round. The better seed is player 1."""
     if not t.rounds or t.rounds[-1].stage != "topcut":
         raise TournamentError("The top cut has not started.")
@@ -560,7 +609,7 @@ def advance_top_cut(t: Tournament) -> Tournament:
         matches.append(Match(id=f"r{number}-m{table}", table=table, p1=p1, p2=p2))
 
     new = copy.deepcopy(t)
-    new.rounds.append(Round(number=number, stage="topcut", matches=matches))
+    new.rounds.append(Round(number=number, stage="topcut", matches=matches, paired_at=_timestamp(now)))
     return new
 
 
@@ -580,6 +629,11 @@ def champion(t: Tournament) -> str | None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _timestamp(now: str | None) -> str:
+    """`now` if given (tests, simulations), else the current UTC time, e.g. 2026-10-14T19:05:12+00:00."""
+    return now or datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _swiss_rounds(t: Tournament) -> list[Round]:

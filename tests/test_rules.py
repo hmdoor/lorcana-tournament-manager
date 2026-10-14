@@ -211,6 +211,50 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(renamed.name, "Renamed")
 
 
+class EventDataTests(unittest.TestCase):
+    def test_store_and_date(self):
+        t = R.update_settings(tournament_with(0), store="  Dragon's   Den ", event_date="2026-11-02")
+        self.assertEqual((t.store, t.event_date), ("Dragon's Den", "2026-11-02"))
+        with self.assertRaises(TournamentError):
+            R.update_settings(t, event_date="next Tuesday")
+
+    def test_inks(self):
+        t = R.set_player_inks(tournament_with(1), "p001", ["steel", "Amber"])
+        self.assertEqual(t.players[0].inks, ["Amber", "Steel"])  # proper case, standard order
+        self.assertEqual(R.set_player_inks(t, "p001", []).players[0].inks, [])
+        for bad in (["Purple"], ["Ruby", "Ruby"], ["Ruby", "Steel", "Amber"], "Ruby"):
+            with self.assertRaises(TournamentError, msg=bad):
+                R.set_player_inks(t, "p001", bad)
+
+    def test_timestamps(self):
+        t = R.pair_next_swiss_round(tournament_with(3), random.Random(1), now="2026-11-02T18:00:00+00:00")
+        self.assertEqual(t.rounds[0].paired_at, "2026-11-02T18:00:00+00:00")
+        bye = next(m for m in t.rounds[0].matches if m.is_bye)
+        self.assertEqual(bye.reported_at, "2026-11-02T18:00:00+00:00")
+        match = next(m for m in t.rounds[0].matches if not m.is_bye)
+        t = R.report_result(t, match.id, 2, 1, now="2026-11-02T18:41:00+00:00")
+        self.assertEqual(t.rounds[0].matches[0].reported_at, "2026-11-02T18:41:00+00:00")
+        t = R.clear_result(t, match.id)
+        self.assertIsNone(t.rounds[0].matches[0].reported_at)
+
+    def test_timestamps_default_to_now_in_utc(self):
+        t = R.pair_next_swiss_round(tournament_with(2), random.Random(1))
+        self.assertTrue(t.rounds[0].paired_at.endswith("+00:00"))
+
+    def test_files_from_before_these_fields_still_load(self):
+        old = run_swiss(4, 1, seed=1).to_dict()
+        for key in ("store", "event_date"):
+            del old[key]
+        for p in old["players"]:
+            del p["inks"]
+        for r in old["rounds"]:
+            del r["paired_at"]
+            for m in r["matches"]:
+                del m["reported_at"]
+        t = Tournament.from_dict(old)
+        self.assertEqual((t.store, t.players[0].inks, t.rounds[0].paired_at), ("", [], None))
+
+
 class TopCutTests(unittest.TestCase):
     def test_bracket_seed_order(self):
         self.assertEqual(R.bracket_seed_order(2), [1, 2])

@@ -15,14 +15,16 @@ python3 -m lorcana
 Your browser opens at http://127.0.0.1:8000. Keep the terminal window open while
 the event runs; press Ctrl+C there to stop.
 
-Tournaments are saved in the `data` folder as they change, so closing the browser
-or restarting the computer loses nothing. Use **Settings → Export tournament file**
-for a backup copy.
+Tournaments are saved in a SQLite database, `data/lorcana.db`, after every change,
+so closing the browser or restarting the computer loses nothing. Use
+**Settings → Export tournament file** for a backup copy of one event, or copy
+`data/lorcana.db` to back up everything.
 
 ## Running an event
 
-1. Create a tournament and choose the round length and top cut.
-2. Add players, one at a time or by pasting a list.
+1. Create a tournament with its store, date, round length and top cut.
+2. Add players, one at a time or by pasting a list. Optionally record each
+   player's deck inks on the Players tab.
 3. Press the big button in the gold bar. It always shows the next step:
    start round 1, pair the next round, start the top cut, and so on.
 4. On **Pairings**, tap each match's score (games won, left player first).
@@ -44,12 +46,16 @@ Every change can be reversed with **Undo**.
 
 - [Discovery plan](docs/discovery/README.md): research questions, stakeholders,
   interview guides, survey and event observation sheet
+- [Database design](docs/data/erd.md): entity-relationship diagram, design
+  decisions and how to explore the data with SQL
+- Project tracking: Jira project **LTM**
 
 ## For developers
 
 - `lorcana/rules.py` holds all tournament logic, with no web or storage code.
-- `lorcana/storage.py` saves tournaments as JSON files (swap this out for a database
-  when hosting).
+- `lorcana/schema.sql` defines the database tables.
+- `lorcana/storage.py` saves tournaments in SQLite (swap in PostgreSQL when hosting).
+  Events saved as JSON files by earlier versions are imported automatically.
 - `lorcana/server.py` is the web server and JSON API.
 - `lorcana/static/` holds the browser screens.
 

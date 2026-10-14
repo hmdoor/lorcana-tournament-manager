@@ -62,7 +62,9 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 
 /* ----- Home ----- */
 
-.create-form { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 12px; align-items: end; }
+.create-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; align-items: end; }
+.data td.inks { white-space: nowrap; }
+.ink-select { padding: 4px 6px; font-size: 0.85rem; margin-right: 4px; }
 .create-form label, .settings label { display: grid; gap: 4px; font-size: 0.85rem; color: var(--muted); }
 .t-list { list-style: none; padding: 0; margin: 0; }
 .t-list li { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
@@ -169,7 +171,7 @@ table.data { width: 100%; border-collapse: collapse; margin-top: 12px; }
   .match { grid-template-columns: 1fr 1fr; }
   .match .table-no { grid-column: 1 / -1; }
   .match .scores { grid-column: 1 / -1; order: 3; }
-  .data th:nth-child(n+5), .data td:nth-child(n+5) { display: none; }
+  .standings th:nth-child(n+5), .standings td:nth-child(n+5) { display: none; }
 }
 
 /* ----- Projector timer page ----- */

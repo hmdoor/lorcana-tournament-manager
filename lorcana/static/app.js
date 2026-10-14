@@ -136,6 +136,8 @@ async function renderHome() {
       <h1>New tournament</h1>
       <form id="create-form" class="create-form">
         <label>Name <input name="name" placeholder="Friday Night Lorcana" required></label>
+        <label>Store <input name="store" placeholder="Store name"></label>
+        <label>Date <input name="event_date" type="date" value="${todayIso()}" required></label>
         <label>Round length (minutes) <input name="round_minutes" type="number" min="1" max="240" value="50"></label>
         <label>Top cut <select name="top_cut_size">${cutOptions(8)}</select></label>
         <button class="primary">Create tournament</button>
@@ -151,12 +153,21 @@ async function renderHome() {
           ? `<ul class="t-list">${list
               .map(
                 (t) => `<li><a href="#/t/${t.id}">${esc(t.name)}</a>
-                  <span class="muted small">${t.players} players · ${PHASES[t.phase]} · ${new Date(t.updated_at * 1000).toLocaleString()}</span></li>`
+                  <span class="muted small">${t.store ? `${esc(t.store)} · ` : ''}${fmtEventDate(t.event_date)} · ${t.players} players · ${PHASES[t.phase]}</span></li>`
               )
               .join('')}</ul>`
           : '<p class="muted">No tournaments yet. Create one above.</p>'
       }
     </section>`;
+}
+
+/** Today's date as YYYY-MM-DD in the organizer's time zone. */
+function todayIso() {
+  return new Date().toLocaleDateString('en-CA');
+}
+
+function fmtEventDate(isoDate) {
+  return new Date(`${isoDate}T00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function cutOptions(selected) {
@@ -200,7 +211,8 @@ function statusLine(v) {
   const t = v.tournament;
   const active = t.players.filter((p) => !p.dropped).length;
   const cut = t.settings.top_cut_size ? `Top ${t.settings.top_cut_size} cut` : 'No top cut';
-  return `${active} active players · ${PHASES[v.phase]} · Swiss ${v.swiss_rounds_played} of ${v.swiss_rounds_target} rounds · ${cut}`;
+  const where = `${t.store ? `${esc(t.store)} · ` : ''}${fmtEventDate(t.event_date)}`;
+  return `${where} · ${active} active players · ${PHASES[v.phase]} · Swiss ${v.swiss_rounds_played} of ${v.swiss_rounds_target} rounds · ${cut}`;
 }
 
 /** The single most useful next action, shown as a big button. */
@@ -279,7 +291,8 @@ function playersTab(v) {
             : `<button class="link danger" data-do="drop" ${data}>Drop</button>`,
       ].join(' ');
       return `<tr class="${p.dropped ? 'dropped' : ''}">
-        <td>${esc(p.name)}</td><td>${s.wins}–${s.losses}–${s.draws}</td><td>${status}</td><td class="actions">${actions}</td></tr>`;
+        <td>${esc(p.name)}</td><td class="inks">${inkSelect(p, 0)}${inkSelect(p, 1)}</td>
+        <td>${s.wins}–${s.losses}–${s.draws}</td><td>${status}</td><td class="actions">${actions}</td></tr>`;
     })
     .join('');
 
@@ -296,9 +309,18 @@ function playersTab(v) {
     ${v.phase === 'swiss' ? '<p class="muted small">Players added now take a loss for each round already paired.</p>' : ''}
     ${
       players.length
-        ? `<table class="data"><thead><tr><th>Player (${players.length})</th><th>Record</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+        ? `<table class="data"><thead><tr><th>Player (${players.length})</th><th>Deck inks</th><th>Record</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+           <p class="muted small">Deck inks are optional. Leave them blank for players who’d rather not share.</p>`
         : '<p class="muted">No players yet.</p>'
     }`;
+}
+
+function inkSelect(player, slot) {
+  const options = current.inks
+    .map((ink) => `<option value="${ink}" ${player.inks[slot] === ink ? 'selected' : ''}>${ink}</option>`)
+    .join('');
+  return `<select class="ink-select" data-player="${player.id}" aria-label="Ink ${slot + 1} for ${esc(player.name)}">
+    <option value="">—</option>${options}</select>`;
 }
 
 // ----- Pairings tab -----
@@ -453,6 +475,8 @@ function settingsTab(v) {
   return `
     <form id="settings-form" class="settings">
       <label>Tournament name <input name="name" value="${esc(t.name)}" required></label>
+      <label>Store <input name="store" value="${esc(t.store)}" placeholder="Store name"></label>
+      <label>Date <input name="event_date" type="date" value="${t.event_date}" required></label>
       <label>Round length (minutes) <input name="round_minutes" type="number" min="1" max="240" value="${s.round_minutes}"></label>
       <label>Swiss rounds
         <select name="swiss_rounds">
@@ -588,7 +612,13 @@ app.addEventListener('submit', async (e) => {
       try {
         const view = await api('/api/tournaments', {
           method: 'POST',
-          body: { name: data.name, round_minutes: Number(data.round_minutes), top_cut_size: Number(data.top_cut_size) },
+          body: {
+            name: data.name,
+            store: data.store,
+            event_date: data.event_date,
+            round_minutes: Number(data.round_minutes),
+            top_cut_size: Number(data.top_cut_size),
+          },
         });
         setCurrent(view);
         location.hash = `#/t/${view.id}/players`;
@@ -605,6 +635,8 @@ app.addEventListener('submit', async (e) => {
     case 'settings-form': {
       const body = {
         name: data.name,
+        store: data.store,
+        event_date: data.event_date,
         round_minutes: Number(data.round_minutes),
         swiss_rounds: data.swiss_rounds ? Number(data.swiss_rounds) : null,
       };
@@ -623,6 +655,13 @@ app.addEventListener('input', (e) => {
 });
 
 app.addEventListener('change', async (e) => {
+  if (e.target.classList.contains('ink-select')) {
+    const playerId = e.target.dataset.player;
+    const inks = [...app.querySelectorAll(`.ink-select[data-player="${playerId}"]`)].map((s) => s.value).filter(Boolean);
+    // If the choice is rejected, redraw so the pickers show what's actually saved.
+    if (!(await act('set_player_inks', { player_id: playerId, inks }))) renderTournament();
+    return;
+  }
   if (e.target.id !== 'import-file') return;
   const file = e.target.files[0];
   if (!file) return;

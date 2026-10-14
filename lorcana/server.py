@@ -19,7 +19,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import rules as R
-from .storage import JsonFileStore, NotFound, Record
+from .storage import NotFound, Record, SqliteStore, migrate_json_files
+
+DB_FILENAME = "lorcana.db"
 
 STATIC_DIR = Path(__file__).parent / "static"
 PAGES = {"/": "index.html", "/timer": "timer.html"}
@@ -55,6 +57,7 @@ def view(record: Record) -> dict:
         "tournament": t.to_dict(),
         "phase": R.phase(t),
         "standings": [asdict(s) for s in R.compute_standings(t)],
+        "inks": R.INKS,
         "recommended_swiss_rounds": recommended,
         "swiss_rounds_target": t.settings.swiss_rounds or recommended,
         "swiss_rounds_played": sum(1 for r in t.rounds if r.stage == "swiss"),
@@ -70,6 +73,8 @@ def summary(record: Record) -> dict:
     return {
         "id": record.id,
         "name": t.name,
+        "store": t.store,
+        "event_date": t.event_date,
         "phase": R.phase(t),
         "players": len(t.players),
         "updated_at": record.updated_at,
@@ -114,6 +119,8 @@ def tournament_action(t: R.Tournament, action: str, p: dict) -> R.Tournament:
             for name in names:
                 t = R.add_player(t, name)
             return t
+        case "set_player_inks":
+            return R.set_player_inks(t, _str(p, "player_id"), p.get("inks"))
         case "rename_player":
             return R.rename_player(t, _str(p, "player_id"), _str(p, "name"))
         case "remove_player" | "drop_player" | "reinstate_player":
@@ -131,7 +138,7 @@ def tournament_action(t: R.Tournament, action: str, p: dict) -> R.Tournament:
         case "advance_top_cut":
             return R.advance_top_cut(t)
         case "update_settings":
-            keys = ("name", "round_minutes", "swiss_rounds", "top_cut_size")
+            keys = ("name", "store", "event_date", "round_minutes", "swiss_rounds", "top_cut_size")
             return R.update_settings(t, **{k: p[k] for k in keys if k in p})
         case _:
             raise BadRequest(f"Unknown action: {action}")
@@ -162,7 +169,7 @@ def update_timer(record: Record, action: str, p: dict) -> None:
 
 
 def new_tournament(body: dict) -> R.Tournament:
-    keys = ("round_minutes", "swiss_rounds", "top_cut_size")
+    keys = ("store", "event_date", "round_minutes", "swiss_rounds", "top_cut_size")
     settings = {k: body[k] for k in keys if k in body}
     name = body.get("name") if isinstance(body.get("name"), str) and body["name"].strip() else "Lorcana Tournament"
     return R.update_settings(R.Tournament(), name=name, **settings)
@@ -197,7 +204,7 @@ def _int(p: dict, key: str, default: int | None = None) -> int:
 
 
 class Handler(BaseHTTPRequestHandler):
-    store: JsonFileStore  # set by make_server
+    store: SqliteStore  # set by make_server
     lock = threading.Lock()  # one change at a time keeps saves consistent
 
     def do_GET(self):
@@ -303,8 +310,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(data_dir: Path, port: int, host: str = "127.0.0.1") -> ThreadingHTTPServer:
-    """Starts on `port`, or the next free port if it's taken."""
-    handler = type("BoundHandler", (Handler,), {"store": JsonFileStore(data_dir)})
+    """Starts on `port`, or the next free port if it's taken.
+
+    Events saved as JSON files by the earlier version are imported into the database first.
+    """
+    store = SqliteStore(Path(data_dir) / DB_FILENAME)
+    migrated = migrate_json_files(data_dir, store)
+    if migrated:
+        print(f"Imported {migrated} tournament(s) from JSON files into the database.")
+    handler = type("BoundHandler", (Handler,), {"store": store})
     for candidate in range(port, port + 20):
         try:
             return ThreadingHTTPServer((host, candidate), handler)
@@ -317,7 +331,7 @@ def serve(data_dir: Path, port: int = 8000, open_browser: bool = True) -> None:
     server = make_server(data_dir, port)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     print(f"Lorcana tournament app running at {url}")
-    print(f"Saving tournaments in {Path(data_dir).resolve()}")
+    print(f"Saving tournaments in {(Path(data_dir) / DB_FILENAME).resolve()}")
     print("Keep this window open during the event. Press Ctrl+C to stop.")
     if open_browser:
         webbrowser.open(url)

@@ -1,5 +1,6 @@
 # Saved tournaments contain real player names; never publish them.
-data/
+# The leading slash means only the top-level data folder, not docs/data.
+/data/
 *.db
 *.sqlite
 
