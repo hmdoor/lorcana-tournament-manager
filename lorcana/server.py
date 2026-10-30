@@ -59,7 +59,7 @@ def view(record: Record) -> dict:
         "standings": [asdict(s) for s in R.compute_standings(t)],
         "inks": R.INKS,
         "recommended_swiss_rounds": recommended,
-        "swiss_rounds_target": t.settings.swiss_rounds or recommended,
+        "swiss_rounds_target": R.swiss_target(t),
         "swiss_rounds_played": sum(1 for r in t.rounds if r.stage == "swiss"),
         "champion": R.champion(t),
         "timer": record.timer,

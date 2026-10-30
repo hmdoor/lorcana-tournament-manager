@@ -99,6 +99,11 @@ class SqliteStoreTests(unittest.TestCase):
         self.store.save(first)  # saving again makes it the most recent
         self.assertEqual([r.tournament.name for r in self.store.list()][0], "First")
 
+    def test_list_sorted_by_event_date(self):
+        for name, day in (("Middle", "2026-09-10"), ("Latest", "2026-10-01"), ("Earliest", "2026-08-05")):
+            self.store.create(R.update_settings(R.Tournament(name=name), event_date=day), TIMER)
+        self.assertEqual([r.tournament.name for r in self.store.list()], ["Latest", "Middle", "Earliest"])
+
     def test_database_rejects_impossible_scores(self):
         self.store.create(full_event(), TIMER)
         with self.assertRaises(sqlite3.IntegrityError):

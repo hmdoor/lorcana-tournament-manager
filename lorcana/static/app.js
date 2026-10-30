@@ -229,7 +229,10 @@ function nextStep(v) {
       : '<span class="muted">Add at least 2 players to start round 1.</span>';
   }
   if (v.phase === 'complete') {
-    return `<div class="champion">🏆 Champion: <strong>${esc(playerName(v.champion))}</strong></div>`;
+    const title = t.top_cut ? 'Champion' : 'Winner';
+    const winner = v.champion ? `🏆 ${title}: <strong>${esc(playerName(v.champion))}</strong>` : 'Event complete';
+    return `<div class="champion">${winner}</div>
+      ${t.top_cut ? '' : '<button class="ghost" data-do="pair_next_round">Pair an extra Swiss round</button>'}`;
   }
   const left = last.matches.filter((m) => !m.result).length;
   if (left) {

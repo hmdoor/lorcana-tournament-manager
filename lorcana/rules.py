@@ -215,12 +215,23 @@ def update_settings(
     return new
 
 
+def swiss_target(t: Tournament) -> int:
+    """Swiss rounds planned: the organizer's setting, or the recommended number."""
+    return t.settings.swiss_rounds or recommended_swiss_rounds(len(t.players))
+
+
 def phase(t: Tournament) -> Phase:
+    """An event with no top cut is complete once its planned Swiss rounds are all reported."""
     if not t.rounds:
         return "registration"
     last = t.rounds[-1]
     if last.stage == "swiss":
-        return "swiss"
+        finished = (
+            not t.settings.top_cut_size
+            and is_round_complete(last)
+            and len(_swiss_rounds(t)) >= swiss_target(t)
+        )
+        return "complete" if finished else "swiss"
     return "complete" if len(last.matches) == 1 and is_round_complete(last) else "topcut"
 
 
@@ -621,9 +632,12 @@ def seed_of(t: Tournament, player_id: str) -> int | None:
 
 
 def champion(t: Tournament) -> str | None:
+    """The top cut winner, or for a Swiss-only event, first place among players who didn't drop."""
     if phase(t) != "complete":
         return None
-    return match_winner(t.rounds[-1].matches[0])
+    if t.rounds[-1].stage == "topcut":
+        return match_winner(t.rounds[-1].matches[0])
+    return next((s.player_id for s in compute_standings(t) if not s.dropped), None)
 
 
 # ---------------------------------------------------------------------------

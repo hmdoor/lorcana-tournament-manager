@@ -59,7 +59,10 @@ class SqliteStore:
 
     def list(self) -> list[Record]:
         with self._transaction() as db:
-            rows = db.execute("SELECT event_id FROM events WHERE deleted_at IS NULL ORDER BY updated_at DESC").fetchall()
+            rows = db.execute(
+                """SELECT event_id FROM events WHERE deleted_at IS NULL
+                   ORDER BY event_date DESC, updated_at DESC"""
+            ).fetchall()
             return [self._load(db, row["event_id"]) for row in rows]
 
     def get(self, tournament_id: str) -> Record:
@@ -275,7 +278,8 @@ class SqliteStore:
 
 
 def _iso(epoch: float) -> str:
-    return datetime.fromtimestamp(epoch, timezone.utc).isoformat(timespec="seconds")
+    # Milliseconds, so two saves in the same second still sort in the right order.
+    return datetime.fromtimestamp(epoch, timezone.utc).isoformat(timespec="milliseconds")
 
 
 # ---------------------------------------------------------------------------

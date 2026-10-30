@@ -211,6 +211,32 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(renamed.name, "Renamed")
 
 
+class EventCompletionTests(unittest.TestCase):
+    def test_swiss_only_event_completes_with_a_winner(self):
+        t = run_swiss(8, 2, seed=4)
+        self.assertEqual(R.phase(t), "swiss")  # 8 players: 3 rounds planned
+        t = play_round(R.pair_next_swiss_round(t, random.Random(4)), random.Random(4))
+        self.assertEqual(R.phase(t), "complete")
+        leader = R.compute_standings(t)[0].player_id
+        self.assertEqual(R.champion(t), leader)
+
+    def test_extra_round_reopens_then_completes(self):
+        t = run_swiss(8, 3, seed=4)
+        t = R.pair_next_swiss_round(t, random.Random(4))
+        self.assertEqual(R.phase(t), "swiss")
+        t = play_round(t, random.Random(4))
+        self.assertEqual(R.phase(t), "complete")
+
+    def test_event_with_a_cut_waits_for_the_cut(self):
+        t = R.update_settings(run_swiss(8, 3, seed=4), top_cut_size=4)
+        self.assertEqual(R.phase(t), "swiss")
+        self.assertIsNone(R.champion(t))
+
+    def test_custom_round_count(self):
+        t = R.update_settings(run_swiss(8, 2, seed=4), swiss_rounds=2)
+        self.assertEqual(R.phase(t), "complete")
+
+
 class EventDataTests(unittest.TestCase):
     def test_store_and_date(self):
         t = R.update_settings(tournament_with(0), store="  Dragon's   Den ", event_date="2026-11-02")
