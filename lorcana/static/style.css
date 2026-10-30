@@ -17,6 +17,8 @@
 }
 
 * { box-sizing: border-box; }
+/* Paint the whole page (not just body) so screenshots are never transparent; the app is light-only. */
+html { background: var(--bg); color-scheme: light; }
 body { margin: 0; background: var(--bg); color: var(--ink); }
 [hidden] { display: none !important; }
 
